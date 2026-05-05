@@ -13,6 +13,11 @@ st.set_page_config(
 # ── スタイル ──────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
+/* ダイナミックアイランド対応：セーフエリア分だけ上に余白 */
+.main .block-container {
+    padding-top: max(1rem, env(safe-area-inset-top)) !important;
+}
+
 /* iPhoneでの文字ズーム防止（16px以上でズームしない） */
 input, textarea, select { font-size: 16px !important; }
 
@@ -408,9 +413,6 @@ else:
             st.session_state.open_file = None
             st.rerun()
 
-    # カーソル / Undo-Redo ツールバー（テキストエリアの上に配置）
-    components.html(TOOLBAR_HTML, height=58)
-
     # ウィジェットキーにファイルパスを含めることで別ファイルを開いたとき確実にリセット
     widget_key = f"editor_{hash(file_path)}"
 
@@ -420,12 +422,13 @@ else:
 
     edited = st.text_area(
         label="編集エリア",
-        height=400,
+        height=265,
         label_visibility="collapsed",
         key=widget_key,
     )
 
-    st.markdown("---")
+    # カーソル / Undo-Redo ツールバー（テキストエリアの下に配置）
+    components.html(TOOLBAR_HTML, height=58)
 
     save_btn_col, _ = st.columns([1, 2])
     with save_btn_col:
