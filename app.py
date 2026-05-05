@@ -22,7 +22,14 @@ input, textarea, select { font-size: 16px !important; }
     font-family: 'Hiragino Kaku Gothic ProN', 'Hiragino Sans',
                  'Yu Gothic', Meiryo, sans-serif;
 }
-.stButton button { min-height: 44px; }
+.stButton button {
+    min-height: 44px;
+    text-align: left !important;
+    font-family: 'Menlo', 'Courier New', monospace !important;
+    font-size: 14px !important;
+    letter-spacing: 0;
+    white-space: pre;
+}
 h1 { font-size: 1.4rem !important; }
 h2, h3 { font-size: 1.1rem !important; }
 </style>
@@ -71,10 +78,11 @@ def fmt_date(dt_utc):
     return datetime.datetime.utcfromtimestamp(ts).strftime("%Y/%m/%d %H:%M")
 
 
-def render_tree(path: str, depth: int = 0):
-    """フォルダツリーを再帰的に描画する"""
+def render_tree(path: str, prefix: str = ""):
+    """Explorerスタイルのツリーを再帰的に描画する"""
     items = list_folder(path)
-    indent = "　" * depth  # 全角スペースでインデント
+    if not items:
+        return
 
     ascending = st.session_state.get("sort_order", "降順（新しい順）") == "昇順（古い順）"
     keyword   = st.session_state.get("search_query", "").strip().lower()
@@ -85,41 +93,46 @@ def render_tree(path: str, depth: int = 0):
     )
     files = sorted(
         [e for e in items if isinstance(e, dropbox.files.FileMetadata)
-         and e.name.lower().endswith(EDITABLE_EXTS)],
+         and e.name.lower().endswith(EDITABLE_EXTS)
+         and (not keyword or keyword in e.name.lower())],
         key=lambda e: e.server_modified,
         reverse=not ascending,
     )
 
-    # フォルダ
-    for folder in folders:
-        is_open = folder.path_display in st.session_state.expanded_folders
-        icon    = "📂" if is_open else "📁"
-        if st.button(f"{indent}{icon}　{folder.name}",
-                     key=f"d_{folder.path_display}",
-                     use_container_width=True):
-            if is_open:
-                st.session_state.expanded_folders.discard(folder.path_display)
-            else:
-                st.session_state.expanded_folders.add(folder.path_display)
-            st.rerun()
-        if is_open:
-            render_tree(folder.path_display, depth + 1)
+    all_items = folders + files
+    total = len(all_items)
 
-    # ファイル（検索フィルタ付き）
-    for file in files:
-        if keyword and keyword not in file.name.lower():
-            continue
-        label = f"{indent}📄　{file.name}　🕐 {fmt_date(file.server_modified)}"
-        if st.button(label, key=f"f_{file.path_display}", use_container_width=True):
-            content = read_file(file.path_display)
-            if content is not None:
-                st.session_state.open_file = file.path_display
-                st.session_state.content   = content
-                wk = f"editor_{hash(file.path_display)}"
-                if wk in st.session_state:
-                    del st.session_state[wk]
+    for i, item in enumerate(all_items):
+        is_last     = (i == total - 1)
+        connector   = "└─ " if is_last else "├─ "
+        child_pfx   = prefix + ("      " if is_last else "│    ")
+
+        if isinstance(item, dropbox.files.FolderMetadata):
+            is_open = item.path_display in st.session_state.expanded_folders
+            icon    = "📂" if is_open else "📁"
+            label   = f"{prefix}{connector}{icon} {item.name}"
+            if st.button(label, key=f"d_{item.path_display}",
+                         use_container_width=True):
+                if is_open:
+                    st.session_state.expanded_folders.discard(item.path_display)
+                else:
+                    st.session_state.expanded_folders.add(item.path_display)
                 st.rerun()
-        return []
+            if is_open:
+                render_tree(item.path_display, child_pfx)
+
+        else:
+            label = f"{prefix}{connector}📄 {item.name}  🕐 {fmt_date(item.server_modified)}"
+            if st.button(label, key=f"f_{item.path_display}",
+                         use_container_width=True):
+                content = read_file(item.path_display)
+                if content is not None:
+                    st.session_state.open_file = item.path_display
+                    st.session_state.content   = content
+                    wk = f"editor_{hash(item.path_display)}"
+                    if wk in st.session_state:
+                        del st.session_state[wk]
+                    st.rerun()
 
 
 EDITABLE_EXTS = (".txt", ".md", ".text", ".log", ".csv", ".tsv")
