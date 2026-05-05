@@ -171,7 +171,7 @@ def search_dropbox(keyword: str) -> list:
     try:
         dbx = get_dbx()
         results = []
-        res = dbx.files_search_v2(dropbox.files.SearchV2Arg(query=keyword))
+        res = dbx.files_search_v2(keyword)
         for match in res.matches:
             meta = match.metadata.metadata
             if (isinstance(meta, dropbox.files.FileMetadata)
