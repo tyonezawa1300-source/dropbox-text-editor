@@ -1,6 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import dropbox
+import datetime
 
 st.set_page_config(
     page_title="Dropbox テキストエディタ",
@@ -29,9 +30,9 @@ h2, h3 { font-size: 1.1rem !important; }
 
 # ── セッション初期化 ──────────────────────────────────────────────────────────
 for key, default in {
-    "folder_path": "",
-    "open_file":   None,
-    "content":     "",
+    "expanded_folders": set(),
+    "open_file":        None,
+    "content":          "",
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -50,6 +51,7 @@ def get_dbx():
         st.stop()
 
 
+@st.cache_data(ttl=60)
 def list_folder(path: str) -> list:
     try:
         dbx = get_dbx()
@@ -61,6 +63,62 @@ def list_folder(path: str) -> list:
         return entries
     except Exception as e:
         st.error(f"フォルダ読み込みエラー: {e}")
+        return []
+
+
+def fmt_date(dt_utc):
+    ts = dt_utc.timestamp() + 9 * 3600  # JST
+    return datetime.datetime.utcfromtimestamp(ts).strftime("%Y/%m/%d %H:%M")
+
+
+def render_tree(path: str, depth: int = 0):
+    """フォルダツリーを再帰的に描画する"""
+    items = list_folder(path)
+    indent = "　" * depth  # 全角スペースでインデント
+
+    ascending = st.session_state.get("sort_order", "降順（新しい順）") == "昇順（古い順）"
+    keyword   = st.session_state.get("search_query", "").strip().lower()
+
+    folders = sorted(
+        [e for e in items if isinstance(e, dropbox.files.FolderMetadata)],
+        key=lambda e: e.name.lower(),
+    )
+    files = sorted(
+        [e for e in items if isinstance(e, dropbox.files.FileMetadata)
+         and e.name.lower().endswith(EDITABLE_EXTS)],
+        key=lambda e: e.server_modified,
+        reverse=not ascending,
+    )
+
+    # フォルダ
+    for folder in folders:
+        is_open = folder.path_display in st.session_state.expanded_folders
+        icon    = "📂" if is_open else "📁"
+        if st.button(f"{indent}{icon}　{folder.name}",
+                     key=f"d_{folder.path_display}",
+                     use_container_width=True):
+            if is_open:
+                st.session_state.expanded_folders.discard(folder.path_display)
+            else:
+                st.session_state.expanded_folders.add(folder.path_display)
+            st.rerun()
+        if is_open:
+            render_tree(folder.path_display, depth + 1)
+
+    # ファイル（検索フィルタ付き）
+    for file in files:
+        if keyword and keyword not in file.name.lower():
+            continue
+        label = f"{indent}📄　{file.name}　🕐 {fmt_date(file.server_modified)}"
+        if st.button(label, key=f"f_{file.path_display}", use_container_width=True):
+            content = read_file(file.path_display)
+            if content is not None:
+                st.session_state.open_file = file.path_display
+                st.session_state.content   = content
+                wk = f"editor_{hash(file.path_display)}"
+                if wk in st.session_state:
+                    del st.session_state[wk]
+                st.rerun()
         return []
 
 
@@ -267,97 +325,39 @@ st.title("📝 Dropbox テキストエディタ")
 
 # ─ ファイルブラウザ ──────────────────────────────────────────────────────────
 if st.session_state.open_file is None:
-    current = st.session_state.folder_path
-    st.caption(f"📁 {current if current else '/ (ルートフォルダ)'}")
-
-    if current:
-        if st.button("⬆ 上のフォルダへ戻る", use_container_width=True):
-            parent = current.rsplit("/", 1)[0] if "/" in current.lstrip("/") else ""
-            st.session_state.folder_path = parent
-            st.rerun()
 
     # 新規ファイル作成
     with st.expander("➕ 新規テキストファイルを作成"):
-        new_name = st.text_input("ファイル名（例: memo.txt）", key="new_file_name")
+        st.caption("パス例: memo.txt　または　フォルダ名/memo.txt")
+        new_name = st.text_input("ファイル名", key="new_file_name",
+                                 placeholder="memo.txt")
         if st.button("作成する", key="create_file_btn"):
             if not new_name.strip():
                 st.warning("ファイル名を入力してください。")
             elif not new_name.lower().endswith(EDITABLE_EXTS):
                 st.warning("拡張子は .txt / .md などにしてください。")
             else:
-                new_path = (current + "/" + new_name.strip()).lstrip("/")
-                new_path = "/" + new_path
+                new_path = "/" + new_name.strip().lstrip("/")
                 if save_file(new_path, ""):
+                    list_folder.clear()  # キャッシュをクリアして一覧を更新
                     st.session_state.open_file = new_path
                     st.session_state.content   = ""
-                    widget_key = f"editor_{hash(new_path)}"
-                    if widget_key in st.session_state:
-                        del st.session_state[widget_key]
+                    wk = f"editor_{hash(new_path)}"
+                    if wk in st.session_state:
+                        del st.session_state[wk]
                     st.rerun()
 
-    items = list_folder(current)
-
-    # 検索ボックス＋並び順
+    # 検索・並び順
     search = st.text_input("🔍 ファイル名を検索", placeholder="キーワードを入力...",
                            key="search_query")
+    st.radio("並び順（更新日）",
+             options=["降順（新しい順）", "昇順（古い順）"],
+             horizontal=True, key="sort_order")
 
-    sort_order = st.radio(
-        "並び順（更新日）",
-        options=["降順（新しい順）", "昇順（古い順）"],
-        horizontal=True,
-        key="sort_order",
-    )
-    ascending = (sort_order == "昇順（古い順）")
+    st.divider()
 
-    if not items:
-        st.info("ファイルやフォルダが見つかりませんでした。")
-
-    # フォルダとファイルを分離
-    folders = [e for e in items if isinstance(e, dropbox.files.FolderMetadata)]
-    files   = [e for e in items if isinstance(e, dropbox.files.FileMetadata)
-               and e.name.lower().endswith(EDITABLE_EXTS)]
-
-    # フォルダは名前順、ファイルは更新日順でソート
-    folders.sort(key=lambda e: e.name.lower())
-    files.sort(
-        key=lambda e: e.server_modified,
-        reverse=not ascending,
-    )
-
-    keyword = search.strip().lower()
-
-    # フォルダ表示
-    for item in folders:
-        if st.button(f"📁  {item.name}", key=item.path_display,
-                     use_container_width=True):
-            st.session_state.folder_path = item.path_display
-            st.session_state.search_query = ""
-            st.rerun()
-
-    # ファイル表示（検索フィルタ付き）
-    matched = 0
-    for item in files:
-        if keyword and keyword not in item.name.lower():
-            continue
-        matched += 1
-        # 更新日を表示（YYYY/MM/DD HH:MM形式）
-        jst_offset = 9 * 3600
-        import datetime
-        ts = item.server_modified.timestamp() + jst_offset
-        dt = datetime.datetime.utcfromtimestamp(ts)
-        date_str = dt.strftime("%Y/%m/%d %H:%M")
-        label = f"📄  {item.name}　　🕐 {date_str}"
-        if st.button(label, key=item.path_display, use_container_width=True):
-            content = read_file(item.path_display)
-            if content is not None:
-                st.session_state.open_file = item.path_display
-                st.session_state.content  = content
-                if "editor_widget" in st.session_state:
-                    del st.session_state["editor_widget"]
-                st.rerun()
-
-    if keyword and matched == 0:
-        st.info(f"「{search}」に一致するファイルが見つかりませんでした。")
+    # ツリー表示（ルートから再帰展開）
+    render_tree("")
 
 # ─ エディタ ─────────────────────────────────────────────────────────────────
 else:
