@@ -178,7 +178,7 @@ def search_dropbox(keyword: str) -> list:
                     and meta.name.lower().endswith(EDITABLE_EXTS)):
                 results.append(meta)
         while res.has_more:
-            res = dbx.files_search_v2_continue(res.cursor)
+            res = dbx.files_search_continue_v2(res.cursor)
             for match in res.matches:
                 meta = match.metadata.metadata
                 if (isinstance(meta, dropbox.files.FileMetadata)
