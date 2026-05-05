@@ -166,6 +166,16 @@ def render_tree(path: str, prefix: str = ""):
 EDITABLE_EXTS = (".txt", ".md", ".text", ".log", ".csv", ".tsv")
 
 
+def _extract_meta(match):
+    """SearchMatchV2 から FileMetadata / FolderMetadata を取り出す"""
+    obj = match.metadata
+    # MetadataV2 は Stone Union 型。get_metadata() で実体を取り出す
+    if hasattr(obj, 'is_metadata') and obj.is_metadata():
+        return obj.get_metadata()
+    # 直接 FileMetadata / FolderMetadata の場合はそのまま返す
+    return obj
+
+
 def search_dropbox(keyword: str) -> list:
     """Dropbox検索APIを使って全フォルダからキーワードに一致するファイルを検索する"""
     try:
@@ -173,14 +183,14 @@ def search_dropbox(keyword: str) -> list:
         results = []
         res = dbx.files_search_v2(keyword)
         for match in res.matches:
-            meta = match.metadata.metadata
+            meta = _extract_meta(match)
             if (isinstance(meta, dropbox.files.FileMetadata)
                     and meta.name.lower().endswith(EDITABLE_EXTS)):
                 results.append(meta)
         while res.has_more:
             res = dbx.files_search_continue_v2(res.cursor)
             for match in res.matches:
-                meta = match.metadata.metadata
+                meta = _extract_meta(match)
                 if (isinstance(meta, dropbox.files.FileMetadata)
                         and meta.name.lower().endswith(EDITABLE_EXTS)):
                     results.append(meta)
