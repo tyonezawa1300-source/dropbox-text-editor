@@ -100,12 +100,14 @@ def render_tree(path: str, prefix: str = ""):
     )
 
     all_items = folders + files
-    total = len(all_items)
+    total     = len(all_items)
+    is_root   = (prefix == "")
 
     for i, item in enumerate(all_items):
-        is_last     = (i == total - 1)
-        connector   = "└─ " if is_last else "├─ "
-        child_pfx   = prefix + ("      " if is_last else "│    ")
+        is_last   = (i == total - 1)
+        # ルート直下はコネクタなし・左端揃え、サブ以降はExplorerスタイル
+        connector = "" if is_root else ("└─ " if is_last else "├─ ")
+        child_pfx = prefix + ("   " if is_root else ("      " if is_last else "│    "))
 
         if isinstance(item, dropbox.files.FolderMetadata):
             is_open = item.path_display in st.session_state.expanded_folders
