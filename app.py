@@ -165,6 +165,20 @@ def render_tree(path: str, prefix: str = ""):
 
 EDITABLE_EXTS = (".txt", ".md", ".text", ".log", ".csv", ".tsv")
 
+
+def search_files_recursive(path: str, keyword: str) -> list:
+    """キーワードに一致するファイルをフォルダ全体から再帰的に収集する"""
+    results = []
+    for item in list_folder(path):
+        if isinstance(item, dropbox.files.FolderMetadata):
+            results.extend(search_files_recursive(item.path_display, keyword))
+        elif (isinstance(item, dropbox.files.FileMetadata)
+              and item.name.lower().endswith(EDITABLE_EXTS)
+              and keyword in item.name.lower()):
+            results.append(item)
+    return results
+
+
 def read_file(path: str):
     try:
         _, res = get_dbx().files_download(path)
@@ -396,6 +410,29 @@ if st.session_state.open_file is None:
              horizontal=True, key="sort_order")
 
     st.divider()
+
+    # キーワードがあれば全フォルダを横断した検索結果を先頭に表示
+    keyword = st.session_state.get("search_query", "").strip().lower()
+    if keyword:
+        ascending = st.session_state.get("sort_order", "降順（新しい順）") == "昇順（古い順）"
+        results = sorted(
+            search_files_recursive("", keyword),
+            key=lambda e: e.server_modified,
+            reverse=not ascending,
+        )
+        st.caption(f"🔎 検索結果：{len(results)} 件")
+        for item in results:
+            label = f"📄 {item.name}  🕐 {fmt_date(item.server_modified)}\n   {item.path_display}"
+            if st.button(label, key=f"sr_{item.path_display}", use_container_width=True):
+                content = read_file(item.path_display)
+                if content is not None:
+                    st.session_state.open_file = item.path_display
+                    st.session_state.content   = content
+                    wk = f"editor_{hash(item.path_display)}"
+                    if wk in st.session_state:
+                        del st.session_state[wk]
+                    st.rerun()
+        st.divider()
 
     # ツリー表示（ルートから再帰展開）
     render_tree("")
