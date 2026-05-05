@@ -166,17 +166,28 @@ def render_tree(path: str, prefix: str = ""):
 EDITABLE_EXTS = (".txt", ".md", ".text", ".log", ".csv", ".tsv")
 
 
-def search_files_recursive(path: str, keyword: str) -> list:
-    """キーワードに一致するファイルをフォルダ全体から再帰的に収集する"""
-    results = []
-    for item in list_folder(path):
-        if isinstance(item, dropbox.files.FolderMetadata):
-            results.extend(search_files_recursive(item.path_display, keyword))
-        elif (isinstance(item, dropbox.files.FileMetadata)
-              and item.name.lower().endswith(EDITABLE_EXTS)
-              and keyword in item.name.lower()):
-            results.append(item)
-    return results
+def search_dropbox(keyword: str) -> list:
+    """Dropbox検索APIを使って全フォルダからキーワードに一致するファイルを検索する"""
+    try:
+        dbx = get_dbx()
+        results = []
+        res = dbx.files_search_v2(dropbox.files.SearchV2Arg(query=keyword))
+        for match in res.matches:
+            meta = match.metadata.metadata
+            if (isinstance(meta, dropbox.files.FileMetadata)
+                    and meta.name.lower().endswith(EDITABLE_EXTS)):
+                results.append(meta)
+        while res.has_more:
+            res = dbx.files_search_v2_continue(res.cursor)
+            for match in res.matches:
+                meta = match.metadata.metadata
+                if (isinstance(meta, dropbox.files.FileMetadata)
+                        and meta.name.lower().endswith(EDITABLE_EXTS)):
+                    results.append(meta)
+        return results
+    except Exception as e:
+        st.error(f"検索エラー: {e}")
+        return []
 
 
 def read_file(path: str):
@@ -416,7 +427,7 @@ if st.session_state.open_file is None:
     if keyword:
         ascending = st.session_state.get("sort_order", "降順（新しい順）") == "昇順（古い順）"
         results = sorted(
-            search_files_recursive("", keyword),
+            search_dropbox(keyword),
             key=lambda e: e.server_modified,
             reverse=not ascending,
         )
