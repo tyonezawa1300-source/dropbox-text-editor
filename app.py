@@ -24,11 +24,20 @@ input, textarea, select { font-size: 16px !important; }
 }
 .stButton button {
     min-height: 44px;
-    text-align: left !important;
     font-family: 'Menlo', 'Courier New', monospace !important;
     font-size: 14px !important;
     letter-spacing: 0;
     white-space: pre;
+    justify-content: flex-start !important;
+    text-align: left !important;
+}
+.stButton button > div {
+    text-align: left !important;
+    width: 100% !important;
+}
+.stButton button p {
+    text-align: left !important;
+    width: 100% !important;
 }
 h1 { font-size: 1.4rem !important; }
 h2, h3 { font-size: 1.1rem !important; }
