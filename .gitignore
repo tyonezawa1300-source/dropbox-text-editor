@@ -1,0 +1,11 @@
+# Dropbox認証情報（絶対にGitHubに上げない）
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# macOS
+.DS_Store
