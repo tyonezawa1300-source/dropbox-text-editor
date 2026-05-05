@@ -58,11 +58,7 @@ def list_folder(path: str) -> list:
         while res.has_more:
             res = dbx.files_list_folder_continue(res.cursor)
             entries.extend(res.entries)
-        # フォルダを先に、名前順に並べる
-        return sorted(
-            entries,
-            key=lambda e: (isinstance(e, dropbox.files.FileMetadata), e.name.lower()),
-        )
+        return entries
     except Exception as e:
         st.error(f"フォルダ読み込みエラー: {e}")
         return []
@@ -301,39 +297,64 @@ if st.session_state.open_file is None:
 
     items = list_folder(current)
 
-    # 検索ボックス
+    # 検索ボックス＋並び順
     search = st.text_input("🔍 ファイル名を検索", placeholder="キーワードを入力...",
                            key="search_query")
+
+    sort_order = st.radio(
+        "並び順（更新日）",
+        options=["降順（新しい順）", "昇順（古い順）"],
+        horizontal=True,
+        key="sort_order",
+    )
+    ascending = (sort_order == "昇順（古い順）")
 
     if not items:
         st.info("ファイルやフォルダが見つかりませんでした。")
 
-    # 検索キーワードでフィルタ（フォルダは常に表示、ファイルのみ絞り込み）
-    keyword = search.strip().lower()
-    matched = 0
-    for item in items:
-        if isinstance(item, dropbox.files.FolderMetadata):
-            if st.button(f"📁  {item.name}", key=item.path_display,
-                         use_container_width=True):
-                st.session_state.folder_path = item.path_display
-                st.session_state.search_query = ""
-                st.rerun()
+    # フォルダとファイルを分離
+    folders = [e for e in items if isinstance(e, dropbox.files.FolderMetadata)]
+    files   = [e for e in items if isinstance(e, dropbox.files.FileMetadata)
+               and e.name.lower().endswith(EDITABLE_EXTS)]
 
-        elif isinstance(item, dropbox.files.FileMetadata):
-            if not item.name.lower().endswith(EDITABLE_EXTS):
-                continue
-            if keyword and keyword not in item.name.lower():
-                continue
-            matched += 1
-            if st.button(f"📄  {item.name}", key=item.path_display,
-                         use_container_width=True):
-                content = read_file(item.path_display)
-                if content is not None:
-                    st.session_state.open_file = item.path_display
-                    st.session_state.content  = content
-                    if "editor_widget" in st.session_state:
-                        del st.session_state["editor_widget"]
-                    st.rerun()
+    # フォルダは名前順、ファイルは更新日順でソート
+    folders.sort(key=lambda e: e.name.lower())
+    files.sort(
+        key=lambda e: e.server_modified,
+        reverse=not ascending,
+    )
+
+    keyword = search.strip().lower()
+
+    # フォルダ表示
+    for item in folders:
+        if st.button(f"📁  {item.name}", key=item.path_display,
+                     use_container_width=True):
+            st.session_state.folder_path = item.path_display
+            st.session_state.search_query = ""
+            st.rerun()
+
+    # ファイル表示（検索フィルタ付き）
+    matched = 0
+    for item in files:
+        if keyword and keyword not in item.name.lower():
+            continue
+        matched += 1
+        # 更新日を表示（YYYY/MM/DD HH:MM形式）
+        jst_offset = 9 * 3600
+        import datetime
+        ts = item.server_modified.timestamp() + jst_offset
+        dt = datetime.datetime.utcfromtimestamp(ts)
+        date_str = dt.strftime("%Y/%m/%d %H:%M")
+        label = f"📄  {item.name}　　🕐 {date_str}"
+        if st.button(label, key=item.path_display, use_container_width=True):
+            content = read_file(item.path_display)
+            if content is not None:
+                st.session_state.open_file = item.path_display
+                st.session_state.content  = content
+                if "editor_widget" in st.session_state:
+                    del st.session_state["editor_widget"]
+                st.rerun()
 
     if keyword and matched == 0:
         st.info(f"「{search}」に一致するファイルが見つかりませんでした。")
