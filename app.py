@@ -22,22 +22,34 @@ input, textarea, select { font-size: 16px !important; }
     font-family: 'Hiragino Kaku Gothic ProN', 'Hiragino Sans',
                  'Yu Gothic', Meiryo, sans-serif;
 }
-.stButton button {
+.stButton button,
+[data-testid="stBaseButton-secondary"],
+[data-testid="stBaseButton-primary"] {
     min-height: 44px;
     font-family: 'Menlo', 'Courier New', monospace !important;
     font-size: 14px !important;
     letter-spacing: 0;
     white-space: pre;
+    display: flex !important;
     justify-content: flex-start !important;
+    align-items: center !important;
+    text-align: left !important;
+    padding-left: 8px !important;
+}
+.stButton button > div,
+[data-testid="stBaseButton-secondary"] > div,
+[data-testid="stBaseButton-primary"] > div {
+    display: flex !important;
+    justify-content: flex-start !important;
+    width: 100% !important;
     text-align: left !important;
 }
-.stButton button > div {
+.stButton button p,
+[data-testid="stBaseButton-secondary"] p,
+[data-testid="stBaseButton-primary"] p {
     text-align: left !important;
     width: 100% !important;
-}
-.stButton button p {
-    text-align: left !important;
-    width: 100% !important;
+    margin: 0 !important;
 }
 h1 { font-size: 1.4rem !important; }
 h2, h3 { font-size: 1.1rem !important; }
