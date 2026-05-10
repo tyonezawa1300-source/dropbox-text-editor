@@ -111,16 +111,15 @@ def render_tree(path: str, prefix: str = ""):
         return
 
     ascending = st.session_state.get("sort_order", "降順（新しい順）") == "昇順（古い順）"
-    keyword   = st.session_state.get("search_query", "").strip().lower()
 
+    # キーワードに関係なく全フォルダ・全ファイルを表示（検索結果は上部で別途表示）
     folders = sorted(
         [e for e in items if isinstance(e, dropbox.files.FolderMetadata)],
         key=lambda e: e.name.lower(),
     )
     files = sorted(
         [e for e in items if isinstance(e, dropbox.files.FileMetadata)
-         and e.name.lower().endswith(EDITABLE_EXTS)
-         and (not keyword or keyword in e.name.lower())],
+         and e.name.lower().endswith(EDITABLE_EXTS)],
         key=lambda e: e.server_modified,
         reverse=not ascending,
     )
