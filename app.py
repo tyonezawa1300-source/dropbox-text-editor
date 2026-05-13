@@ -454,8 +454,19 @@ if st.session_state.open_file is None:
                     st.rerun()
         st.divider()
 
-    # ツリー表示（ルートから再帰展開）
-    render_tree("")
+    # ツリー表示（ルートを "Dropbox" フォルダとして表示）
+    ROOT_KEY = "__root__"
+    root_open = ROOT_KEY in st.session_state.expanded_folders
+    root_icon = "📂" if root_open else "📁"
+    if st.button(f"{root_icon} Dropbox", key="d___root__",
+                 use_container_width=True):
+        if root_open:
+            st.session_state.expanded_folders.discard(ROOT_KEY)
+        else:
+            st.session_state.expanded_folders.add(ROOT_KEY)
+        st.rerun()
+    if root_open:
+        render_tree("")
 
 # ─ エディタ ─────────────────────────────────────────────────────────────────
 else:
