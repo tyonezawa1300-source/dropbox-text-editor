@@ -465,8 +465,31 @@ if st.session_state.open_file is None:
         else:
             st.session_state.expanded_folders.add(ROOT_KEY)
         st.rerun()
+
+    # Dropbox が開いていればフォルダツリー全体を表示
     if root_open:
         render_tree("")
+    else:
+        # 折りたたみ中でもルート直下のテキストファイルは常に表示
+        ascending = st.session_state.get("sort_order", "降順（新しい順）") == "昇順（古い順）"
+        root_files = sorted(
+            [e for e in list_folder("") if isinstance(e, dropbox.files.FileMetadata)
+             and e.name.lower().endswith(EDITABLE_EXTS)],
+            key=lambda e: e.server_modified,
+            reverse=not ascending,
+        )
+        for item in root_files:
+            label = f"📄 {item.name}  🕐 {fmt_date(item.server_modified)}"
+            if st.button(label, key=f"f_{item.path_display}",
+                         use_container_width=True):
+                content = read_file(item.path_display)
+                if content is not None:
+                    st.session_state.open_file = item.path_display
+                    st.session_state.content   = content
+                    wk = f"editor_{hash(item.path_display)}"
+                    if wk in st.session_state:
+                        del st.session_state[wk]
+                    st.rerun()
 
 # ─ エディタ ─────────────────────────────────────────────────────────────────
 else:
