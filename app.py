@@ -66,6 +66,7 @@ for key, default in {
     "expanded_folders": set(),
     "open_file":        None,
     "content":          "",
+    "confirm_delete":   False,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -218,6 +219,16 @@ def save_file(path: str, content: str) -> bool:
         return True
     except Exception as e:
         st.error(f"保存エラー: {e}")
+        return False
+
+
+def delete_file(path: str) -> bool:
+    try:
+        get_dbx().files_delete_v2(path)
+        list_folder.clear()  # キャッシュをクリアして一覧を更新
+        return True
+    except Exception as e:
+        st.error(f"削除エラー: {e}")
         return False
 
 
@@ -521,9 +532,28 @@ else:
     # カーソル / Undo-Redo ツールバー（テキストエリアの下に配置）
     components.html(TOOLBAR_HTML, height=58)
 
-    save_btn_col, _ = st.columns([1, 2])
+    save_btn_col, del_btn_col = st.columns([2, 1])
     with save_btn_col:
         if st.button("💾  保存する", type="primary", use_container_width=True):
             if save_file(file_path, edited):
                 st.session_state.content = edited
                 st.success("✅  保存しました！")
+    with del_btn_col:
+        if st.button("🗑️  削除", use_container_width=True):
+            st.session_state["confirm_delete"] = True
+
+    # 削除確認ダイアログ
+    if st.session_state.get("confirm_delete"):
+        st.warning(f"⚠️ **{file_name}** を削除しますか？この操作は元に戻せません。")
+        yes_col, no_col = st.columns(2)
+        with yes_col:
+            if st.button("✅  はい、削除する", type="primary", use_container_width=True):
+                if delete_file(file_path):
+                    st.session_state["confirm_delete"] = False
+                    st.session_state.open_file = None
+                    st.session_state.content   = ""
+                    st.rerun()
+        with no_col:
+            if st.button("❌  キャンセル", use_container_width=True):
+                st.session_state["confirm_delete"] = False
+                st.rerun()
