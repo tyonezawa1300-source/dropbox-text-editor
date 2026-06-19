@@ -67,6 +67,7 @@ for key, default in {
     "open_file":        None,
     "content":          "",
     "confirm_delete":   False,
+    "confirm_back":     False,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -512,8 +513,7 @@ else:
         st.subheader(f"✏️  {file_name}")
     with col_back:
         if st.button("← 一覧へ", use_container_width=True):
-            st.session_state.open_file = None
-            st.rerun()
+            st.session_state["confirm_back"] = True
 
     # ウィジェットキーにファイルパスを含めることで別ファイルを開いたとき確実にリセット
     widget_key = f"editor_{hash(file_path)}"
@@ -529,6 +529,26 @@ else:
         key=widget_key,
     )
 
+    # 一覧へ戻る確認（未保存の変更がある場合のみ表示）
+    if st.session_state.get("confirm_back"):
+        has_unsaved = (edited != st.session_state.content)
+        if has_unsaved:
+            st.warning("⚠️ 未保存の変更があります。保存せずに一覧へ戻りますか？")
+            back_yes, back_no = st.columns(2)
+            with back_yes:
+                if st.button("✅  戻る（破棄）", use_container_width=True):
+                    st.session_state["confirm_back"] = False
+                    st.session_state.open_file = None
+                    st.rerun()
+            with back_no:
+                if st.button("❌  編集を続ける", use_container_width=True):
+                    st.session_state["confirm_back"] = False
+                    st.rerun()
+        else:
+            st.session_state["confirm_back"] = False
+            st.session_state.open_file = None
+            st.rerun()
+
     # カーソル / Undo-Redo ツールバー（テキストエリアの下に配置）
     components.html(TOOLBAR_HTML, height=58)
 
@@ -537,6 +557,7 @@ else:
         if st.button("💾  保存する", type="primary", use_container_width=True):
             if save_file(file_path, edited):
                 st.session_state.content = edited
+                st.session_state["confirm_back"] = False
                 st.success("✅  保存しました！")
     with del_btn_col:
         if st.button("🗑️  削除", use_container_width=True):
