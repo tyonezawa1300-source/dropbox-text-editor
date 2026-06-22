@@ -233,14 +233,14 @@ def delete_file(path: str) -> bool:
         return False
 
 
-# ── カーソル / Undo-Redo ツールバー（iframeで親のtextareaを操作）────────────
+# ── カーソル / Undo-Redo / ファイル内検索ツールバー ──────────────────────────
 TOOLBAR_HTML = """<!DOCTYPE html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: transparent; padding: 4px 0; }
+body { background: transparent; padding: 2px 0; }
 .bar {
   display: flex;
   gap: 6px;
@@ -270,37 +270,73 @@ button {
 button:active { background: #ddd; border-color: #999; }
 .sep { flex-shrink: 0; width: 1.5px; height: 36px; background: #ccc; }
 .btn-text { font-size: 14px; padding: 0 10px; }
+#search-bar {
+  display: none;
+  gap: 6px;
+  align-items: center;
+  padding: 2px 4px;
+  width: 100%;
+}
+#search-input {
+  flex: 1;
+  min-width: 0;
+  height: 46px;
+  font-size: 16px;
+  border: 1.5px solid #bbb;
+  border-radius: 10px;
+  padding: 0 10px;
+  background: #fff;
+  color: #333;
+  -webkit-appearance: none;
+}
+#search-input:focus { outline: none; border-color: #0061FF; }
+#match-count {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: #666;
+  min-width: 36px;
+  text-align: center;
+}
+#no-match { color: #e00; }
 </style>
 </head>
 <body>
-<div class="bar">
-  <button id="bu"    title="上へ">↑</button>
-  <button id="bd"    title="下へ">↓</button>
-  <button id="bl"    title="左へ">←</button>
-  <button id="br"    title="右へ">→</button>
+
+<!-- 通常ツールバー -->
+<div class="bar" id="main-bar">
+  <button id="bu">↑</button>
+  <button id="bd">↓</button>
+  <button id="bl">←</button>
+  <button id="br">→</button>
   <div class="sep"></div>
-  <button id="bundo" class="btn-text" title="取り消し">↩ 取消</button>
-  <button id="bredo" class="btn-text" title="やり直し">↪ 復元</button>
+  <button id="bundo" class="btn-text">↩ 取消</button>
+  <button id="bredo" class="btn-text">↪ 復元</button>
+  <div class="sep"></div>
+  <button id="bsearch" class="btn-text">🔍 検索</button>
+</div>
+
+<!-- 検索バー -->
+<div id="search-bar">
+  <input id="search-input" type="search" placeholder="検索キーワード..." autocomplete="off" />
+  <span id="match-count">0件</span>
+  <button id="sprev" class="btn-text">↑</button>
+  <button id="snext" class="btn-text">↓</button>
+  <button id="sclose" class="btn-text">✕</button>
 </div>
 
 <script>
 (function () {
   'use strict';
 
-  // 親フレームの textarea を取得
   function getTA() {
     try { return window.parent.document.querySelector('textarea'); }
     catch (e) { return null; }
   }
 
-  // ── カスタム Undo / Redo スタック ────────────────────────────────────────
-  var hist = [];
-  var hi   = -1;
-  var MAX_HIST = 200;
-  var registeredTA = null;
+  // ── Undo / Redo ──────────────────────────────────────────────────────────
+  var hist = [], hi = -1, MAX_HIST = 200, registeredTA = null;
 
   function pushHist(ta) {
-    // hi より後の履歴を削除
     if (hi < hist.length - 1) hist.splice(hi + 1);
     hist.push({ v: ta.value, s: ta.selectionStart });
     if (hist.length > MAX_HIST) { hist.shift(); } else { hi++; }
@@ -312,11 +348,10 @@ button:active { background: #ddd; border-color: #999; }
     if (ta === registeredTA) return;
     registeredTA = ta;
     hist = [{ v: ta.value, s: ta.selectionStart || 0 }];
-    hi   = 0;
+    hi = 0;
     ta.addEventListener('input', function () { pushHist(ta); });
   }
 
-  // React の controlled input を書き換えるトリック
   function setReactValue(ta, value, pos) {
     var setter = Object.getOwnPropertyDescriptor(
       window.parent.HTMLTextAreaElement.prototype, 'value'
@@ -328,77 +363,121 @@ button:active { background: #ddd; border-color: #999; }
   }
 
   function doUndo() {
-    var ta = getTA();
-    if (!ta || hi <= 0) return;
-    hi--;
-    setReactValue(ta, hist[hi].v, hist[hi].s);
+    var ta = getTA(); if (!ta || hi <= 0) return;
+    hi--; setReactValue(ta, hist[hi].v, hist[hi].s);
   }
-
   function doRedo() {
-    var ta = getTA();
-    if (!ta || hi >= hist.length - 1) return;
-    hi++;
-    setReactValue(ta, hist[hi].v, hist[hi].s);
+    var ta = getTA(); if (!ta || hi >= hist.length - 1) return;
+    hi++; setReactValue(ta, hist[hi].v, hist[hi].s);
   }
 
   // ── カーソル移動 ─────────────────────────────────────────────────────────
   function moveCursor(dir) {
-    var ta   = getTA();
-    if (!ta) return;
-    var pos  = ta.selectionStart;
-    var text = ta.value;
-    var np   = pos;
-
+    var ta = getTA(); if (!ta) return;
+    var pos = ta.selectionStart, text = ta.value, np = pos;
     if (dir === 'l') {
       np = Math.max(0, pos - 1);
     } else if (dir === 'r') {
       np = Math.min(text.length, pos + 1);
     } else if (dir === 'u') {
-      var ls  = text.lastIndexOf('\\n', pos - 1) + 1;
-      var col = pos - ls;
-      if (ls > 0) {
-        var pe = ls - 1;
-        var ps = text.lastIndexOf('\\n', pe - 1) + 1;
-        np = ps + Math.min(col, pe - ps);
-      } else {
-        np = 0;
-      }
+      var ls = text.lastIndexOf('\\n', pos - 1) + 1, col = pos - ls;
+      if (ls > 0) { var pe = ls-1, ps = text.lastIndexOf('\\n', pe-1)+1; np = ps + Math.min(col, pe-ps); }
+      else { np = 0; }
     } else if (dir === 'd') {
       var le = text.indexOf('\\n', pos);
       if (le !== -1) {
-        var ls2  = text.lastIndexOf('\\n', pos - 1) + 1;
-        var col2 = pos - ls2;
-        var nls  = le + 1;
-        var nle  = text.indexOf('\\n', nls);
-        var nll  = nle !== -1 ? nle - nls : text.length - nls;
-        np = nls + Math.min(col2, nll);
+        var ls2 = text.lastIndexOf('\\n', pos-1)+1, col2 = pos-ls2;
+        var nls = le+1, nle = text.indexOf('\\n', nls);
+        np = nls + Math.min(col2, nle !== -1 ? nle-nls : text.length-nls);
       }
     }
-
     ta.focus();
     try { ta.setSelectionRange(np, np); } catch (e) {}
+  }
+
+  // ── ファイル内検索 ───────────────────────────────────────────────────────
+  var matches = [], mIdx = -1;
+
+  function findAll() {
+    var ta = getTA();
+    var q = document.getElementById('search-input').value;
+    var cnt = document.getElementById('match-count');
+    matches = []; mIdx = -1;
+    if (!ta || !q) { cnt.textContent = '0件'; cnt.id = 'match-count'; return; }
+    var text = ta.value, ql = q.toLowerCase(), tl = text.toLowerCase(), pos = 0;
+    while (true) {
+      var idx = tl.indexOf(ql, pos);
+      if (idx === -1) break;
+      matches.push(idx);
+      pos = idx + 1;
+    }
+    if (matches.length > 0) {
+      mIdx = 0; jumpTo(0);
+      cnt.textContent = '1/' + matches.length;
+      cnt.removeAttribute('id'); cnt.id = 'match-count';
+    } else {
+      cnt.textContent = '0件';
+      cnt.id = 'no-match';
+    }
+  }
+
+  function jumpTo(i) {
+    var ta = getTA(); if (!ta || matches.length === 0) return;
+    var q = document.getElementById('search-input').value;
+    var start = matches[i], end = start + q.length;
+    ta.focus();
+    try { ta.setSelectionRange(start, end); } catch (e) {}
+    document.getElementById('match-count').textContent = (i+1) + '/' + matches.length;
+  }
+
+  function searchNext() {
+    if (matches.length === 0) return;
+    mIdx = (mIdx + 1) % matches.length; jumpTo(mIdx);
+  }
+  function searchPrev() {
+    if (matches.length === 0) return;
+    mIdx = (mIdx - 1 + matches.length) % matches.length; jumpTo(mIdx);
+  }
+
+  function openSearch() {
+    document.getElementById('main-bar').style.display = 'none';
+    document.getElementById('search-bar').style.display = 'flex';
+    document.getElementById('search-input').focus();
+  }
+  function closeSearch() {
+    document.getElementById('search-bar').style.display = 'none';
+    document.getElementById('main-bar').style.display = 'flex';
+    document.getElementById('search-input').value = '';
+    matches = []; mIdx = -1;
+    var ta = getTA(); if (ta) ta.focus();
   }
 
   // ── ボタンバインド ───────────────────────────────────────────────────────
   function bind(id, fn) {
     var btn = document.getElementById(id);
-    // mousedown で preventDefault → PC・タッチパッドでフォーカスを奪わない
+    if (!btn) return;
     btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
-    // touchstart + preventDefault → iOS でフォーカスを奪わずに実行
-    btn.addEventListener('touchstart', function (e) {
-      e.preventDefault();
-      fn();
-    }, { passive: false });
-    // click はフォールバック
+    btn.addEventListener('touchstart', function (e) { e.preventDefault(); fn(); }, { passive: false });
     btn.addEventListener('click', fn);
   }
 
-  bind('bu',    function () { moveCursor('u'); });
-  bind('bd',    function () { moveCursor('d'); });
-  bind('bl',    function () { moveCursor('l'); });
-  bind('br',    function () { moveCursor('r'); });
-  bind('bundo', doUndo);
-  bind('bredo', doRedo);
+  bind('bu',      function () { moveCursor('u'); });
+  bind('bd',      function () { moveCursor('d'); });
+  bind('bl',      function () { moveCursor('l'); });
+  bind('br',      function () { moveCursor('r'); });
+  bind('bundo',   doUndo);
+  bind('bredo',   doRedo);
+  bind('bsearch', openSearch);
+  bind('sprev',   searchPrev);
+  bind('snext',   searchNext);
+  bind('sclose',  closeSearch);
+
+  // 検索入力：Enterで次へ、内容変更で再検索
+  var inp = document.getElementById('search-input');
+  inp.addEventListener('input', findAll);
+  inp.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); searchNext(); }
+  });
 
   setupListener();
 })();
@@ -550,7 +629,7 @@ else:
             st.rerun()
 
     # カーソル / Undo-Redo ツールバー（テキストエリアの下に配置）
-    components.html(TOOLBAR_HTML, height=58)
+    components.html(TOOLBAR_HTML, height=60)
 
     save_btn_col, del_btn_col = st.columns([2, 1])
     with save_btn_col:
