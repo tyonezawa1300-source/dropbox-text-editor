@@ -68,6 +68,7 @@ for key, default in {
     "content":          "",
     "confirm_delete":   False,
     "confirm_back":     False,
+    "show_file_search": False,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -233,7 +234,7 @@ def delete_file(path: str) -> bool:
         return False
 
 
-# ── カーソル / Undo-Redo / ファイル内検索ツールバー ──────────────────────────
+# ── カーソル / Undo-Redo ツールバー ─────────────────────────────────────────
 TOOLBAR_HTML = """<!DOCTYPE html>
 <html>
 <head>
@@ -302,8 +303,7 @@ button:active { background: #ddd; border-color: #999; }
 </head>
 <body>
 
-<!-- 通常ツールバー -->
-<div class="bar" id="main-bar">
+<div class="bar">
   <button id="bu">↑</button>
   <button id="bd">↓</button>
   <button id="bl">←</button>
@@ -311,17 +311,6 @@ button:active { background: #ddd; border-color: #999; }
   <div class="sep"></div>
   <button id="bundo" class="btn-text">↩ 取消</button>
   <button id="bredo" class="btn-text">↪ 復元</button>
-  <div class="sep"></div>
-  <button id="bsearch" class="btn-text">🔍 検索</button>
-</div>
-
-<!-- 検索バー -->
-<div id="search-bar">
-  <input id="search-input" type="search" placeholder="検索キーワード..." autocomplete="off" />
-  <span id="match-count">0件</span>
-  <button id="sprev" class="btn-text">↑</button>
-  <button id="snext" class="btn-text">↓</button>
-  <button id="sclose" class="btn-text">✕</button>
 </div>
 
 <script>
@@ -333,7 +322,6 @@ button:active { background: #ddd; border-color: #999; }
     catch (e) { return null; }
   }
 
-  // ── Undo / Redo ──────────────────────────────────────────────────────────
   var hist = [], hi = -1, MAX_HIST = 200, registeredTA = null;
 
   function pushHist(ta) {
@@ -371,7 +359,6 @@ button:active { background: #ddd; border-color: #999; }
     hi++; setReactValue(ta, hist[hi].v, hist[hi].s);
   }
 
-  // ── カーソル移動 ─────────────────────────────────────────────────────────
   function moveCursor(dir) {
     var ta = getTA(); if (!ta) return;
     var pos = ta.selectionStart, text = ta.value, np = pos;
@@ -395,7 +382,99 @@ button:active { background: #ddd; border-color: #999; }
     try { ta.setSelectionRange(np, np); } catch (e) {}
   }
 
-  // ── ファイル内検索 ───────────────────────────────────────────────────────
+  function bind(id, fn) {
+    var btn = document.getElementById(id);
+    if (!btn) return;
+    btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    btn.addEventListener('touchstart', function (e) { e.preventDefault(); fn(); }, { passive: false });
+    btn.addEventListener('click', fn);
+  }
+
+  bind('bu',    function () { moveCursor('u'); });
+  bind('bd',    function () { moveCursor('d'); });
+  bind('bl',    function () { moveCursor('l'); });
+  bind('br',    function () { moveCursor('r'); });
+  bind('bundo', doUndo);
+  bind('bredo', doRedo);
+
+  setupListener();
+})();
+</script>
+</body>
+</html>"""
+
+# ── ファイル内検索バー（独立iframe）────────────────────────────────────────
+SEARCH_BAR_HTML = """<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: transparent; padding: 2px 0; }
+.bar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 2px 4px;
+}
+input {
+  flex: 1;
+  min-width: 0;
+  height: 46px;
+  font-size: 16px;
+  border: 1.5px solid #0061FF;
+  border-radius: 10px;
+  padding: 0 10px;
+  background: #fff;
+  color: #333;
+  -webkit-appearance: none;
+}
+input:focus { outline: none; }
+#match-count {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: #666;
+  min-width: 40px;
+  text-align: center;
+}
+.no-match { color: #e00 !important; }
+button {
+  flex-shrink: 0;
+  min-width: 46px;
+  min-height: 46px;
+  font-size: 18px;
+  border: 1.5px solid #bbb;
+  border-radius: 10px;
+  background: #f6f6f6;
+  color: #333;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+}
+button:active { background: #ddd; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <input id="search-input" type="search" placeholder="ファイル内を検索..." autocomplete="off" />
+  <span id="match-count">0件</span>
+  <button id="sprev">↑</button>
+  <button id="snext">↓</button>
+</div>
+<script>
+(function () {
+  'use strict';
+
+  function getTA() {
+    try { return window.parent.document.querySelector('textarea'); }
+    catch (e) { return null; }
+  }
+
   var matches = [], mIdx = -1;
 
   function findAll() {
@@ -403,7 +482,7 @@ button:active { background: #ddd; border-color: #999; }
     var q = document.getElementById('search-input').value;
     var cnt = document.getElementById('match-count');
     matches = []; mIdx = -1;
-    if (!ta || !q) { cnt.textContent = '0件'; cnt.id = 'match-count'; return; }
+    if (!ta || !q) { cnt.textContent = '0件'; cnt.classList.remove('no-match'); return; }
     var text = ta.value, ql = q.toLowerCase(), tl = text.toLowerCase(), pos = 0;
     while (true) {
       var idx = tl.indexOf(ql, pos);
@@ -413,11 +492,10 @@ button:active { background: #ddd; border-color: #999; }
     }
     if (matches.length > 0) {
       mIdx = 0; jumpTo(0);
-      cnt.textContent = '1/' + matches.length;
-      cnt.removeAttribute('id'); cnt.id = 'match-count';
+      cnt.classList.remove('no-match');
     } else {
       cnt.textContent = '0件';
-      cnt.id = 'no-match';
+      cnt.classList.add('no-match');
     }
   }
 
@@ -439,20 +517,6 @@ button:active { background: #ddd; border-color: #999; }
     mIdx = (mIdx - 1 + matches.length) % matches.length; jumpTo(mIdx);
   }
 
-  function openSearch() {
-    document.getElementById('main-bar').style.display = 'none';
-    document.getElementById('search-bar').style.display = 'flex';
-    document.getElementById('search-input').focus();
-  }
-  function closeSearch() {
-    document.getElementById('search-bar').style.display = 'none';
-    document.getElementById('main-bar').style.display = 'flex';
-    document.getElementById('search-input').value = '';
-    matches = []; mIdx = -1;
-    var ta = getTA(); if (ta) ta.focus();
-  }
-
-  // ── ボタンバインド ───────────────────────────────────────────────────────
   function bind(id, fn) {
     var btn = document.getElementById(id);
     if (!btn) return;
@@ -461,25 +525,17 @@ button:active { background: #ddd; border-color: #999; }
     btn.addEventListener('click', fn);
   }
 
-  bind('bu',      function () { moveCursor('u'); });
-  bind('bd',      function () { moveCursor('d'); });
-  bind('bl',      function () { moveCursor('l'); });
-  bind('br',      function () { moveCursor('r'); });
-  bind('bundo',   doUndo);
-  bind('bredo',   doRedo);
-  bind('bsearch', openSearch);
-  bind('sprev',   searchPrev);
-  bind('snext',   searchNext);
-  bind('sclose',  closeSearch);
+  bind('sprev', searchPrev);
+  bind('snext', searchNext);
 
-  // 検索入力：Enterで次へ、内容変更で再検索
   var inp = document.getElementById('search-input');
   inp.addEventListener('input', findAll);
   inp.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') { e.preventDefault(); searchNext(); }
   });
 
-  setupListener();
+  // 表示直後に自動フォーカス
+  setTimeout(function () { inp.focus(); }, 100);
 })();
 </script>
 </body>
@@ -628,8 +684,19 @@ else:
             st.session_state.open_file = None
             st.rerun()
 
-    # カーソル / Undo-Redo ツールバー（テキストエリアの下に配置）
+    # カーソル / Undo-Redo ツールバー
     components.html(TOOLBAR_HTML, height=60)
+
+    # ファイル内検索ボタン（保存ボタンの上・常に見える位置）
+    search_open = st.session_state.get("show_file_search", False)
+    search_label = "🔍  検索を閉じる" if search_open else "🔍  ファイル内を検索"
+    if st.button(search_label, use_container_width=True):
+        st.session_state["show_file_search"] = not search_open
+        st.rerun()
+
+    # 検索バー（トグル表示）
+    if st.session_state.get("show_file_search"):
+        components.html(SEARCH_BAR_HTML, height=60)
 
     save_btn_col, del_btn_col = st.columns([2, 1])
     with save_btn_col:
