@@ -503,18 +503,26 @@ button:active { background: #ddd; }
     var ta = getTA(); if (!ta || matches.length === 0) return;
     var q = document.getElementById('search-input').value;
     var start = matches[i], end = start + q.length;
-    ta.focus();
+    // ta.focus() を呼ばない → 検索入力のフォーカスを奪わない
     try { ta.setSelectionRange(start, end); } catch (e) {}
     document.getElementById('match-count').textContent = (i+1) + '/' + matches.length;
+    // textarea を選択位置までスクロール（フォーカスなしでも動作）
+    try {
+      var linesBefore = ta.value.substring(0, start).split('\\n').length - 1;
+      var lineHeight = parseInt(window.parent.getComputedStyle(ta).lineHeight) || 24;
+      ta.scrollTop = linesBefore * lineHeight - ta.clientHeight / 2;
+    } catch (e) {}
   }
 
   function searchNext() {
     if (matches.length === 0) return;
     mIdx = (mIdx + 1) % matches.length; jumpTo(mIdx);
+    inp.focus();
   }
   function searchPrev() {
     if (matches.length === 0) return;
     mIdx = (mIdx - 1 + matches.length) % matches.length; jumpTo(mIdx);
+    inp.focus();
   }
 
   function bind(id, fn) {
